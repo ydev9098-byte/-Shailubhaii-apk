@@ -1,0 +1,337 @@
+name: Build Shailu Bhai APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Create Android project
+        run: |
+          mkdir -p app/src/main/java/com/shailubhai/apk
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-mdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
+
+          cp index.html app/src/main/assets/index.html
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "ShailuBhai"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.shailubhai.apk'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.shailubhai.apk'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      shrinkResources false
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <application
+                  android:allowBackup="true"
+                  android:label="Shailu Bhai"
+                  android:theme="@style/AppTheme"
+                  android:usesCleartextTraffic="true">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:screenOrientation="portrait"
+                      android:exported="true">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+
+                  </activity>
+
+              </application>
+          </manifest>
+          EOF
+
+          mkdir -p app/src/main/res/values
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">#075E54</item>
+                  <item name="android:navigationBarColor">#000000</item>
+                  <item name="android:statusBarColor">#FFFFFF</item>
+                  <item name="android:windowLightStatusBar">true</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/java/com/shailubhai/apk/MainActivity.java <<'EOF'
+          package com.shailubhai.apk;
+
+          import android.content.ActivityNotFoundException;
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Toast;
+
+          import androidx.appcompat.app.AppCompatActivity;
+
+          public class MainActivity extends AppCompatActivity {
+
+              private WebView webView;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  webView = new WebView(this);
+                  setContentView(webView);
+
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setAllowFileAccess(true);
+                  settings.setAllowContentAccess(true);
+                  settings.setBuiltInZoomControls(false);
+                  settings.setDisplayZoomControls(false);
+                  settings.setSupportZoom(false);
+
+                  webView.setWebViewClient(new WebViewClient() {
+
+                      @Override
+                      public boolean shouldOverrideUrlLoading(
+                              WebView view,
+                              WebResourceRequest request) {
+
+                          return handleUrl(request.getUrl().toString());
+                      }
+
+                      @Override
+                      public boolean shouldOverrideUrlLoading(
+                              WebView view,
+                              String url) {
+
+                          return handleUrl(url);
+                      }
+                  });
+
+                  webView.loadUrl("file:///android_asset/index.html");
+              }
+
+              private boolean handleUrl(String url) {
+
+                  if (url == null) {
+                      return false;
+                  }
+
+                  String lower = url.toLowerCase();
+
+                  if (lower.startsWith("https://wa.me/") ||
+                      lower.startsWith("http://wa.me/") ||
+                      lower.startsWith("https://api.whatsapp.com/") ||
+                      lower.startsWith("whatsapp://")) {
+
+                      openWhatsApp(url);
+                      return true;
+                  }
+
+                  if (lower.startsWith("tel:") ||
+                      lower.startsWith("mailto:")) {
+
+                      try {
+                          Intent intent = new Intent(Intent.ACTION_VIEW);
+                          intent.setData(Uri.parse(url));
+                          startActivity(intent);
+                      } catch (Exception e) {
+                          Toast.makeText(
+                                  this,
+                                  "App available nahi hai",
+                                  Toast.LENGTH_SHORT
+                          ).show();
+                      }
+
+                      return true;
+                  }
+
+                  return false;
+              }
+
+              private void openWhatsApp(String originalUrl) {
+
+                  try {
+
+                      Uri original = Uri.parse(originalUrl);
+
+                      String path = original.getPath();
+                      String query = original.getQuery();
+
+                      if (path == null) {
+                          return;
+                      }
+
+                      String phone = path.replace("/", "");
+
+                      String text = "";
+
+                      if (query != null) {
+                          for (String part : query.split("&")) {
+                              if (part.startsWith("text=")) {
+                                  text = part.substring(5);
+                                  break;
+                              }
+                          }
+                      }
+
+                      Uri whatsappUri;
+
+                      if (text.isEmpty()) {
+                          whatsappUri = Uri.parse(
+                                  "whatsapp://send?phone=" + phone
+                          );
+                      } else {
+                          whatsappUri = Uri.parse(
+                                  "whatsapp://send?phone=" +
+                                  phone +
+                                  "&text=" +
+                                  text
+                          );
+                      }
+
+                      Intent intent = new Intent(
+                              Intent.ACTION_VIEW,
+                              whatsappUri
+                      );
+
+                      intent.setPackage("com.whatsapp");
+
+                      startActivity(intent);
+
+                  } catch (ActivityNotFoundException e) {
+
+                      try {
+                          Intent browserIntent = new Intent(
+                                  Intent.ACTION_VIEW,
+                                  Uri.parse(originalUrl)
+                          );
+                          startActivity(browserIntent);
+                      } catch (Exception ignored) {
+                          Toast.makeText(
+                                  this,
+                                  "WhatsApp installed nahi hai",
+                                  Toast.LENGTH_SHORT
+                          ).show();
+                      }
+
+                  } catch (Exception e) {
+                      Toast.makeText(
+                              this,
+                              "WhatsApp open nahi ho paya",
+                              Toast.LENGTH_SHORT
+                      ).show();
+                  }
+              }
+
+              @Override
+              public void onBackPressed() {
+
+                  if (webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+          }
+          EOF
+
+          # Add AndroidX dependency
+          sed -i '/dependencies {/a\    implementation "androidx.appcompat:appcompat:1.7.0"' app/build.gradle
+
+      - name: Create Gradle wrapper
+        run: |
+          gradle wrapper --gradle-version 8.9
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Shailu-Bhai-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
